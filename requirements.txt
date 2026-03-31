@@ -2,4 +2,6 @@ fastapi
 uvicorn
 python-multipart
 openai-whisper
-ffmpeg-python
+opencv-python-headless
+librosa
+numpy

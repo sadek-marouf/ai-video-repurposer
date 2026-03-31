@@ -1,3 +1,8 @@
+import sys
+import os
+
+# إضافة المسار الحالي لمسارات بايثون
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks
 from processor import VideoProcessor
 import shutil

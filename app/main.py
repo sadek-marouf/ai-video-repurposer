@@ -1,46 +1,37 @@
-from fastapi import FastAPI, UploadFile, File
-from fastapi.middleware.cors import CORSMiddleware
-from .processor import VideoProcessor  # استدعاء المحرك الذي كتبناه
+from fastapi import FastAPI, UploadFile, File, BackgroundTasks
+from processor import VideoProcessor
+import shutil
 import os
 
-app = FastAPI()
+app = FastAPI(title="Video to Reels Processor")
 
-# إضافة تصريح الـ CORS لضمان عمل الواجهة والمتصفح
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# مجلد مؤقت لحفظ الفيديوهات المرفوعة
+UPLOAD_DIR = "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-# إنشاء كائن من المعالج
-processor = VideoProcessor()
+@app.post("/upload-and-process/", tags=["Processing"])
+async def upload_video(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+    # 1. حفظ الملف محلياً
+    file_path = os.path.join(UPLOAD_DIR, file.filename)
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    
+    # 2. إنشاء كائن المعالج
+    processor = VideoProcessor(file_path)
+    
+    # 3. تشغيل المعالجة (سنشغلها كـ Background Task لكي لا ينتظر Swagger طويلاً)
+    background_tasks.add_task(processor.process_pipeline)
+    
+    return {
+        "message": "بدأت عملية المعالجة في الخلفية",
+        "file_name": file.filename,
+        "output_folder": processor.output_path
+    }
 
-@app.get("/")
-def read_root():
-    return {"message": "AI Video Engine is Running!"}
-
-# تغيير الـ Endpoint إلى /process/ ليعبر عن المعالجة
-@app.post("/process/")
-async def process_video(file: UploadFile = File(...)):
-    # 1. حفظ الملف مؤقتاً
-    temp_path = f"temp_{file.filename}"
-    with open(temp_path, "wb") as buffer:
-        buffer.write(await file.read())
-
-    try:
-        # 2. استدعاء Whisper لمعالجة الفيديو (هنا يحدث السحر)
-        transcription = await processor.transcribe_video(temp_path)
-        
-        # 3. مسح الملف المؤقت بعد الانتهاء لتوفير المساحة
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-
-        return {
-            "filename": file.filename, 
-            "status": "Success",
-            "data": transcription # هنا ستظهر النصوص والتايم كود
-        }
-    except Exception as e:
-        return {"status": "Error", "message": str(e)}
+@app.get("/check-status/{video_name}", tags=["Processing"])
+async def check_status(video_name: str):
+    # مسار ملف الـ JSON الذي ننتجه في processor.py
+    status_path = f"processed_data/{video_name}/transcript.json"
+    if os.path.exists(status_path):
+        return {"status": "Completed", "data_file": status_path}
+    return {"status": "Processing or Not Found"}

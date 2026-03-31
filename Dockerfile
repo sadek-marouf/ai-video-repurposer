@@ -1,26 +1,29 @@
 FROM python:3.9-slim
 
-# تثبيت أدوات النظام و FFmpeg
+# تثبيت أدوات النظام، FFmpeg، ومكتبات OpenCV الضرورية للسيرفر
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     git \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# الخطوة الأهم: تثبيت Torch CPU بشكل منفصل أولاً لضمان الحجم الصغير
+# تثبيت Torch CPU أولاً لتقليل المساحة (Railway لديه ليميت في الحجم أحياناً)
 RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
-# الآن تثبيت باقي المكتبات منrequirements.txt
+# نسخ وتثبيت المكتبات (تأكد أن opencv-python-headless موجود في requirements.txt)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# نسخ باقي كود المشروع
+# نسخ كود المشروع
 COPY . .
 
-# إنشاء المجلدات الضرورية
-RUN mkdir -p uploads outputs
+# إنشاء مجلدات العمل لضمان عدم وجود أخطاء Permission
+RUN mkdir -p uploads processed_data
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# تشغيل السيرفر (تأكد من مسار المديول حسب هيكلية ملفاتك)
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

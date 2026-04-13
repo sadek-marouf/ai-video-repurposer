@@ -75,7 +75,7 @@ class VideoProcessor:
         cap.release()
         return visual_scores
 
-def step_6_calculate_scores(self, segments, audio_scores, visual_scores):
+    def step_6_calculate_scores(self, segments, audio_scores, visual_scores):
         final_ranking = []
         duration = min(len(audio_scores), len(visual_scores))
         

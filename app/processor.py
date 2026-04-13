@@ -13,16 +13,16 @@ class VideoProcessor:
         self.output_path = os.path.join(output_dir, self.base_name)
         self._setup_dirs()
         
-        # تحميل موديل Whisper (سأستخدم النسخة base لسرعة السيرفر)
+        # تحميل موديل Whisper (النسخة base متوازنة بين السرعة والدقة)
         self.model = whisper.load_model("base")
 
     def _setup_dirs(self):
-        """تهيئة المجلدات المطلوبة للعمل"""
+        """تهيئة المجلدات المطلوبة للعمل لكل فيديو"""
         os.makedirs(os.path.join(self.output_path, "audio"), exist_ok=True)
-        os.makedirs(os.path.join(self.output_dir, "reels"), exist_ok=True)
+        os.makedirs(os.path.join(self.output_path, "reels"), exist_ok=True)
 
     def step_2_extract_audio(self):
-        """استخراج الصوت بجودة احترافية للتحليل"""
+        """الخطوة 2: استخراج الصوت بصيغة WAV للتحليل"""
         audio_out = os.path.join(self.output_path, "audio", "voice.wav")
         command = [
             'ffmpeg', '-i', self.video_path,
@@ -33,48 +33,90 @@ class VideoProcessor:
         return audio_out
 
     def step_3_whisper_analysis(self, audio_path):
-        """تحويل الكلام لنص مع التوقيت (Word-level timestamps)"""
-        print(f"--- Processing Whisper for: {self.base_name} ---")
+        """الخطوة 3: استخراج النصوص والكلمات المفتاحية"""
+        print(f"--- Running Whisper Analysis ---")
         result = self.model.transcribe(audio_path, verbose=False)
-        
-        # تخزين النص مع التوقيت في ملف JSON للرجوع له لاحقاً
         transcript_path = os.path.join(self.output_path, "transcript.json")
         with open(transcript_path, 'w', encoding='utf-8') as f:
             json.dump(result['segments'], f, ensure_ascii=False, indent=4)
-            
         return result['segments']
 
     def step_4_audio_energy(self, audio_path):
-        """تحليل طاقة الصوت (Energy) لتحديد اللحظات الحماسية"""
+        """الخطوة 4: تحليل قوة الصوت (الحماس) لكل ثانية"""
         y, sr = librosa.load(audio_path)
-        
-        # حساب الـ RMS (الطاقة الصوتية)
         rms = librosa.feature.rms(y=y)[0]
-        times = librosa.frames_to_time(range(len(rms)), sr=sr)
+        # تقسيم الطاقة إلى ثوانٍ فعلية
+        energy_per_second = np.array_split(rms, int(librosa.get_duration(y=y, sr=sr)))
+        return [float(np.max(e)) if len(e) > 0 else 0 for e in energy_per_second]
+
+    def step_5_visual_analysis(self):
+        """الخطوة 5: التحليل البصري (كشف الوجوه)"""
+        print(f"--- Running Visual Analysis (Face Detection) ---")
+        cap = cv2.VideoCapture(self.video_path)
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        visual_scores = []
         
-        # تحويلها لـ Dictionary يسهل البحث فيه (ثانية: درجة الطاقة)
-        energy_map = {round(t, 2): float(e) for t, e in zip(times, rms)}
-        return energy_map
+        # استخدام Haar Cascade البسيط (سريع ومناسب للسيرفر)
+        face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        
+        count = 0
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret: break
+            
+            # نحلل إطار واحد لكل ثانية لتوفير الوقت
+            if count % int(fps) == 0:
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                faces = face_cascade.detectMultiScale(gray, 1.1, 4)
+                # إذا وجد وجه يأخذ 1 وإلا 0
+                visual_scores.append(1.0 if len(faces) > 0 else 0.0)
+            count += 1
+            
+        cap.release()
+        return visual_scores
+
+    def step_6_calculate_scores(self, segments, audio_scores, visual_scores):
+        """الخطوة 6: دمج النتائج وحساب أفضل اللحظات"""
+        final_ranking = []
+        duration = min(len(audio_scores), len(visual_scores))
+        
+        for sec in range(duration):
+            # معادلة الخطة: Audio(0.3) + Visual(0.3) + Text(0.4)
+            # سنعطي حالياً Text Score افتراضي 0.5 حتى نطور تحليل الكلمات لاحقاً
+            a_score = audio_scores[sec]
+            v_score = visual_scores[sec]
+            t_score = 0.5 
+            
+            combined_score = (a_score * 0.3) + (v_score * 0.3) + (t_score * 0.4)
+            final_ranking.append({
+                "second": sec,
+                "score": round(combined_score, 4)
+            })
+            
+        # ترتيب النتائج من الأعلى للأقل
+        final_ranking.sort(key=lambda x: x['score'], reverse=True)
+        return final_ranking
 
     def process_pipeline(self):
-        """تشغيل المرحلة الأولى من الخطة"""
-        # 1. استخراج الصوت
+        """تنفيذ العملية الكاملة المخطط لها"""
         audio_file = self.step_2_extract_audio()
-        
-        # 2. تحليل النص (Whisper)
         segments = self.step_3_whisper_analysis(audio_file)
+        audio_scores = self.step_4_audio_energy(audio_file)
+        visual_scores = self.step_5_visual_analysis()
         
-        # 3. تحليل الطاقة (Librosa)
-        energy_data = self.step_4_audio_energy(audio_file)
+        # حساب النقاط النهائية
+        top_moments = self.step_6_calculate_scores(segments, audio_scores, visual_scores)
         
+        # حفظ الترتيب النهائي
+        with open(os.path.join(self.output_path, "scoring.json"), 'w') as f:
+            json.dump(top_moments, f, indent=4)
+            
         return {
-            "status": "Ready for scoring",
-            "segments_count": len(segments),
-            "audio_analysis": "Complete"
+            "status": "Success",
+            "top_moments": top_moments[:5], # عرض أفضل 5 ثوانٍ في النتيجة
+            "output_dir": self.output_path
         }
 
-# لتجربة الكود يدوياً
 if __name__ == "__main__":
-    # تأكد من وجود فيديو باسم test.mp4 بجانب الملف
     proc = VideoProcessor("test.mp4")
     print(proc.process_pipeline())

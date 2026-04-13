@@ -1,5 +1,6 @@
 import sys
 import os
+import json
 
 # إضافة المسار الحالي لمسارات بايثون
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))

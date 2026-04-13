@@ -32,7 +32,28 @@ async def upload_video(background_tasks: BackgroundTasks, file: UploadFile = Fil
         "file_name": file.filename,
         "output_folder": processor.output_path
     }
+@app.get("/debug-analysis/{video_name}", tags=["Debug"])
+async def debug_analysis(video_name: str):
+    base_path = f"processed_data/{video_name}"
+    scoring_path = os.path.join(base_path, "scoring.json")
+    transcript_path = os.path.join(base_path, "transcript.json")
 
+    if not os.path.exists(scoring_path):
+        return {"error": "لم تنتهِ المعالجة بعد أو الملف غير موجود"}
+
+    with open(scoring_path, 'r') as f:
+        scores = json.load(f)
+    
+    with open(transcript_path, 'r') as f:
+        transcript = json.load(f)
+
+    return {
+        "summary": {
+            "total_seconds": len(scores),
+            "top_10_moments": scores[:10], # أفضل 10 لحظات رشحها النظام
+        },
+        "sample_transcript": transcript[:3] # عينة من أول 3 جمل تم فهمها
+    }
 @app.get("/check-status/{video_name}", tags=["Processing"])
 async def check_status(video_name: str):
     # مسار ملف الـ JSON الذي ننتجه في processor.py

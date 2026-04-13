@@ -75,25 +75,37 @@ class VideoProcessor:
         cap.release()
         return visual_scores
 
-    def step_6_calculate_scores(self, segments, audio_scores, visual_scores):
-        """الخطوة 6: دمج النتائج وحساب أفضل اللحظات"""
+def step_6_calculate_scores(self, segments, audio_scores, visual_scores):
         final_ranking = []
         duration = min(len(audio_scores), len(visual_scores))
         
+        # تحويل درجات الصوت لقيم بين 0 و 1 (Normalization)
+        max_audio = max(audio_scores) if max_audio > 0 else 1.0
+        min_audio = min(audio_scores)
+        
         for sec in range(duration):
-            # معادلة الخطة: Audio(0.3) + Visual(0.3) + Text(0.4)
-            # سنعطي حالياً Text Score افتراضي 0.5 حتى نطور تحليل الكلمات لاحقاً
-            a_score = audio_scores[sec]
-            v_score = visual_scores[sec]
-            t_score = 0.5 
+            # 1. سكور الصوت: نجعل أعلى صوت في المقطع هو 1.0
+            a_norm = (audio_scores[sec] - min_audio) / (max_audio - min_audio + 1e-6)
             
-            combined_score = (a_score * 0.3) + (v_score * 0.3) + (t_score * 0.4)
+            # 2. سكور الوجه: موجود (1) أو غير موجود (0)
+            v_score = visual_scores[sec]
+            
+            # 3. سكور النص: هل توجد جملة تبدأ أو تنتهي في هذه الثانية؟
+            t_score = 0.0
+            for seg in segments:
+                if seg['start'] <= sec <= seg['end']:
+                    t_score = 1.0 # هذه الثانية تحتوي على كلام
+                    break
+
+            # المعادلة الجديدة (وزن أكبر للصوت والوجه في الأنميشن)
+            # 40% صوت، 40% وجه، 20% وجود كلام
+            combined_score = (a_norm * 0.4) + (v_score * 0.4) + (t_score * 0.2)
+            
             final_ranking.append({
                 "second": sec,
                 "score": round(combined_score, 4)
             })
             
-        # ترتيب النتائج من الأعلى للأقل
         final_ranking.sort(key=lambda x: x['score'], reverse=True)
         return final_ranking
 

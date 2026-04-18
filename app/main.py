@@ -4,6 +4,7 @@ import json
 import shutil
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 # إضافة المسار الحالي لمسارات بايثون
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -71,3 +72,15 @@ async def check_status(video_name: str):
             "reels_dir": f"/outputs/{video_name}/reels"
         }
     return {"status": "Processing..."}
+@app.get("/download-reel/{video_name}/{reel_number}", tags=["Download"])
+async def download_reel(video_name: str, reel_number: int):
+    # مسار الريل المطلوب
+    reel_path = f"processed_data/{video_name}/reels/reel_{reel_number}.mp4"
+    
+    if os.path.exists(reel_path):
+        return FileResponse(
+            path=reel_path, 
+            filename=f"{video_name}_reel_{reel_number}.mp4", 
+            media_type='video/mp4'
+        )
+    return {"error": "الملف غير موجود، تأكد من انتهاء المعالجة"}

@@ -85,8 +85,36 @@ class VideoProcessor:
             
         final_ranking.sort(key=lambda x: x['score'], reverse=True)
         return final_ranking
+    def step_8_generate_reels(self, top_moments, count=1):
+        """الخطوة 8: قص الفيديو وتحويله لأبعاد الريلز (9:16)"""
+        print(f"--- Generating Reels ---")
+        reels_created = []
+
+        for i in range(min(count, len(top_moments))):
+            best_sec = top_moments[i]['second']
+            # تحديد وقت البداية (قبل اللحظة بـ 2 ثانية) والمدة (6 ثوانٍ للريل القصير)
+            start_time = max(0, best_sec - 2)
+            duration = 6 
+            
+            output_file = os.path.join(self.output_path, "reels", f"reel_{i+1}.mp4")
+            
+            # أمر FFmpeg: القص + التحويل لعمودي + Scale لضمان الجودة
+            command = [
+                'ffmpeg', '-ss', str(start_time), '-t', str(duration),
+                '-i', self.video_path,
+                '-vf', "crop=ih*(9/16):ih,scale=720:1280", 
+                '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
+                '-c:a', 'aac', '-b:a', '128k',
+                output_file, '-y'
+            ]
+            
+            subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+            reels_created.append(output_file)
+        
+        return reels_created
 
     def process_pipeline(self):
+        """النسخة الكاملة من المسار"""
         try:
             audio_file = self.step_2_extract_audio()
             segments = self.step_3_whisper_analysis(audio_file)
@@ -95,11 +123,15 @@ class VideoProcessor:
             
             top_moments = self.step_6_calculate_scores(segments, audio_scores, visual_scores)
             
+            # حفظ السكور
             with open(os.path.join(self.output_path, "scoring.json"), 'w') as f:
                 json.dump(top_moments, f, indent=4)
             
-            print(f"--- Process Completed Successfully for {self.base_name} ---")
+            # توليد الريلز فعلياً
+            self.step_8_generate_reels(top_moments)
+            
+            print(f"--- Reels Generated Successfully! ---")
             return True
         except Exception as e:
-            print(f"--- Error in Pipeline: {str(e)} ---")
+            print(f"--- Error: {str(e)} ---")
             return False

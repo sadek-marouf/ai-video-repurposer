@@ -1,38 +1,43 @@
 import sys
 import os
 import json
+import shutil
+from fastapi import FastAPI, UploadFile, File, BackgroundTasks
+from fastapi.staticfiles import StaticFiles
 
 # إضافة المسار الحالي لمسارات بايثون
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from fastapi import FastAPI, UploadFile, File, BackgroundTasks
 from processor import VideoProcessor
-import shutil
-import os
 
 app = FastAPI(title="Video to Reels Processor")
 
-# مجلد مؤقت لحفظ الفيديوهات المرفوعة
+# مجلدات النظام
 UPLOAD_DIR = "uploads"
+PROCESSED_DIR = "processed_data"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(PROCESSED_DIR, exist_ok=True)
+
+# تفعيل الوصول للملفات عبر المتصفح (مهم جداً لمشاهدة الريلز)
+app.mount("/outputs", StaticFiles(directory=PROCESSED_DIR), name="outputs")
 
 @app.post("/upload-and-process/", tags=["Processing"])
 async def upload_video(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
-    # 1. حفظ الملف محلياً
     file_path = os.path.join(UPLOAD_DIR, file.filename)
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
     
-    # 2. إنشاء كائن المعالج
     processor = VideoProcessor(file_path)
     
-    # 3. تشغيل المعالجة (سنشغلها كـ Background Task لكي لا ينتظر Swagger طويلاً)
+    # تشغيل المعالجة في الخلفية
     background_tasks.add_task(processor.process_pipeline)
     
     return {
         "message": "بدأت عملية المعالجة في الخلفية",
         "file_name": file.filename,
-        "output_folder": processor.output_path
+        "output_folder": processor.output_path,
+        "debug_url": f"/debug-analysis/{processor.base_name}"
     }
+
 @app.get("/debug-analysis/{video_name}", tags=["Debug"])
 async def debug_analysis(video_name: str):
     base_path = f"processed_data/{video_name}"
@@ -40,7 +45,7 @@ async def debug_analysis(video_name: str):
     transcript_path = os.path.join(base_path, "transcript.json")
 
     if not os.path.exists(scoring_path):
-        return {"error": "لم تنتهِ المعالجة بعد أو الملف غير موجود"}
+        return {"error": "المعالجة مستمرة أو الملف غير موجود"}
 
     with open(scoring_path, 'r') as f:
         scores = json.load(f)
@@ -51,14 +56,18 @@ async def debug_analysis(video_name: str):
     return {
         "summary": {
             "total_seconds": len(scores),
-            "top_10_moments": scores[:10], # أفضل 10 لحظات رشحها النظام
+            "top_10_moments": scores[:10],
         },
-        "sample_transcript": transcript[:3] # عينة من أول 3 جمل تم فهمها
+        "sample_transcript": transcript[:3]
     }
+
 @app.get("/check-status/{video_name}", tags=["Processing"])
 async def check_status(video_name: str):
-    # مسار ملف الـ JSON الذي ننتجه في processor.py
-    status_path = f"processed_data/{video_name}/transcript.json"
+    status_path = f"processed_data/{video_name}/scoring.json"
     if os.path.exists(status_path):
-        return {"status": "Completed", "data_file": status_path}
-    return {"status": "Processing or Not Found"}
+        return {
+            "status": "Completed", 
+            "scoring_file": status_path,
+            "reels_dir": f"/outputs/{video_name}/reels"
+        }
+    return {"status": "Processing..."}

@@ -91,34 +91,77 @@ class VideoProcessor:
         final_ranking.sort(key=lambda x: x['score'], reverse=True)
         return final_ranking
 
-    def step_8_generate_reels(self, top_moments, count=1):
-        print(f"--- 🎬 Generating Reel ---")
+    def _generate_srt(self, segments, start_limit, duration):
+        """تحويل قطع نص Whisper إلى ملف SRT متوافق مع وقت الريل"""
+        srt_content = ""
+        end_limit = start_limit + duration
+        
+        counter = 1
+        for seg in segments:
+            # التحقق مما إذا كان النص يقع ضمن توقيت الريل
+            if seg['start'] >= start_limit and seg['end'] <= end_limit:
+                s_time = seg['start'] - start_limit
+                e_time = seg['end'] - start_limit
+                
+                # تنسيق الوقت لصيغة SRT: HH:MM:SS,ms
+                def format_time(seconds):
+                    hrs = int(seconds // 3600)
+                    mins = int((seconds % 3600) // 60)
+                    secs = int(seconds % 60)
+                    milli = int((seconds - int(seconds)) * 1000)
+                    return f"{hrs:02}:{mins:02}:{secs:02},{milli:03}"
+
+                srt_content += f"{counter}\n"
+                srt_content += f"{format_time(s_time)} --> {format_time(e_time)}\n"
+                srt_content += f"{seg['text'].strip()}\n\n"
+                counter += 1
+        return srt_content
+
+    def step_8_generate_reels(self, top_moments, segments, count=1):
+        print(f"--- 🎬 Generating Pro Reels with Subtitles ---")
         reels_created = []
 
         for i in range(min(count, len(top_moments))):
             best_sec = top_moments[i]['second']
-            start_time = max(0, best_sec - 2)
+            start_time = max(0, best_sec - 3)
+            duration = 10 
+            
+            # 1. إنشاء ملف SRT مؤقت لهذا الريل
+            srt_text = self._generate_srt(segments, start_time, duration)
+            srt_path = os.path.join(self.output_path, "reels", f"sub_{i+1}.srt")
+            with open(srt_path, "w", encoding="utf-8") as f:
+                f.write(srt_text)
+
             output_file = os.path.join(self.output_path, "reels", f"reel_{i+1}.mp4")
             
-            # فلتر scale بسيط ودقة 480p لضمان عدم توقف السيرفر
+            # 2. إعداد فلاتر FFmpeg: القص + الترجمة
+            # ملاحظة: يجب أن يكون مسار ملف SRT في فلتر subtitles مهيأ بشكل خاص للـ Linux
+            escaped_srt_path = srt_path.replace(":", "\\:").replace("\\", "/")
+            
+            # تنسيق الخط: Fontsize=18, PrimaryColour (أبيض مع حدود سوداء)
+            vf_filters = (
+                f"scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,"
+                f"subtitles='{escaped_srt_path}':force_style='Alignment=2,FontSize=16,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=3,Outline=1,Shadow=1'"
+            )
+            
             command = [
                 'ffmpeg', '-y', 
                 '-ss', str(start_time), 
-                '-t', '10', 
+                '-t', str(duration),
                 '-i', self.video_path,
-                '-vf', "scale=480:854:force_original_aspect_ratio=decrease,pad=480:854:(ow-iw)/2:(oh-ih)/2",
-                '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
-                '-preset', 'ultrafast', 
-                '-c:a', 'aac',
+                '-vf', vf_filters,
+                '-c:v', 'libx264', '-crf', '20', 
+                '-preset', 'veryfast', '-pix_fmt', 'yuv420p',
+                '-c:a', 'aac', '-b:a', '128k',
                 output_file
             ]
             
             result = subprocess.run(command, capture_output=True, text=True)
             if os.path.exists(output_file) and os.path.getsize(output_file) > 1000:
-                print(f"✅ Reel Generated! Size: {os.path.getsize(output_file)} bytes")
+                print(f"✅ Pro Reel {i+1} Created with Subtitles!")
                 reels_created.append(output_file)
             else:
-                print(f"❌ FFmpeg Error: {result.stderr}")
+                print(f"❌ Error: {result.stderr}")
         
         return reels_created
 

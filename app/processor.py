@@ -141,7 +141,7 @@ class VideoProcessor:
             # تنسيق الخط: Fontsize=18, PrimaryColour (أبيض مع حدود سوداء)
             vf_filters = (
                 f"scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,"
-                f"subtitles='{escaped_srt_path}':force_style='Alignment=2,FontSize=16,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=3,Outline=1,Shadow=1'"
+                f"subtitles='{escaped_srt_path}':force_style='FontName=DejaVu Sans,Alignment=2,FontSize=16,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=3,Outline=1,Shadow=1'"
             )
             
             command = [

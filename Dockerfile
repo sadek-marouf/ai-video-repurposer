@@ -27,4 +27,4 @@ EXPOSE 8000
 
 # تصحيح مسار التشغيل (تأكد أن main.py موجود داخل مجلد اسمه app أو في الجذور)
 # إذا كان main.py في المجلد الرئيسي مباشرة، استخدم: main:app
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

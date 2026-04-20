@@ -5,15 +5,15 @@ import whisper
 import librosa
 import numpy as np
 import json
+import gc # مكتبة تنظيف الذاكرة
 
 class VideoProcessor:
     def __init__(self, video_path, output_dir="processed_data"):
-        # تحويل المسار لمسار مطلق لضمان وصول FFmpeg إليه
         self.video_path = os.path.abspath(video_path)
         self.base_name = os.path.basename(video_path).split('.')[0]
         self.output_path = os.path.abspath(os.path.join(output_dir, self.base_name))
         self._setup_dirs()
-        self.model = whisper.load_model("base")
+        # حذفنا تحميل الموديل من هنا لتوفير الذاكرة
 
     def _setup_dirs(self):
         os.makedirs(os.path.join(self.output_path, "audio"), exist_ok=True)
@@ -30,10 +30,19 @@ class VideoProcessor:
         return audio_out
 
     def step_3_whisper_analysis(self, audio_path):
-        result = self.model.transcribe(audio_path, verbose=False)
+        print("--- 🧠 Loading Whisper (tiny) into Memory ---")
+        # استخدام tiny لتوفير حوالي 400MB من الرام
+        model = whisper.load_model("tiny", device="cpu")
+        result = model.transcribe(audio_path, verbose=False)
+        
         transcript_path = os.path.join(self.output_path, "transcript.json")
         with open(transcript_path, 'w', encoding='utf-8') as f:
             json.dump(result['segments'], f, ensure_ascii=False, indent=4)
+        
+        # حذف الموديل فوراً لتفريغ الرام
+        del model
+        gc.collect() 
+        print("--- 🗑️ Memory Cleared ---")
         return result['segments']
 
     def step_4_audio_energy(self, audio_path):
@@ -83,49 +92,34 @@ class VideoProcessor:
         return final_ranking
 
     def step_8_generate_reels(self, top_moments, count=1):
-        print(f"--- 🎬 Checking Original Video Path ---")
-        if not os.path.exists(self.video_path):
-            print(f"❌ Error: Original video NOT FOUND at {self.video_path}")
-            return []
-
-        print(f"--- 🎞️ Video Found! Size: {os.path.getsize(self.video_path)} bytes")
+        print(f"--- 🎬 Generating Reel ---")
         reels_created = []
 
         for i in range(min(count, len(top_moments))):
             best_sec = top_moments[i]['second']
-            start_time = max(0, best_sec - 3)
-            duration = 10 
+            start_time = max(0, best_sec - 2)
+            output_file = os.path.join(self.output_path, "reels", f"reel_{i+1}.mp4")
             
-            # التأكد من وجود مجلد الريلز
-            reels_dir = os.path.join(self.output_path, "reels")
-            os.makedirs(reels_dir, exist_ok=True)
-            
-            output_file = os.path.join(reels_dir, f"reel_{i+1}.mp4")
-            
-            # أمر FFmpeg مبسط جداً لضمان عدم الفشل بسبب الفلاتر المعقدة حالياً
+            # فلتر scale بسيط ودقة 480p لضمان عدم توقف السيرفر
             command = [
                 'ffmpeg', '-y', 
                 '-ss', str(start_time), 
-                '-t', str(duration),
+                '-t', '10', 
                 '-i', self.video_path,
-                '-vf', "scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2", 
+                '-vf', "scale=480:854:force_original_aspect_ratio=decrease,pad=480:854:(ow-iw)/2:(oh-ih)/2",
                 '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
                 '-preset', 'ultrafast', 
                 '-c:a', 'aac',
                 output_file
             ]
             
-            print(f"🚀 Running FFmpeg for Reel {i+1}...")
             result = subprocess.run(command, capture_output=True, text=True)
-            
-            if result.returncode != 0:
+            if os.path.exists(output_file) and os.path.getsize(output_file) > 1000:
+                print(f"✅ Reel Generated! Size: {os.path.getsize(output_file)} bytes")
+                reels_created.append(output_file)
+            else:
                 print(f"❌ FFmpeg Error: {result.stderr}")
-            elif os.path.exists(output_file):
-                size = os.path.getsize(output_file)
-                print(f"✅ Reel Created! Path: {output_file} | Size: {size} bytes")
-                if size > 1000: # التأكد أن الحجم منطقي وليس مجرد ملف فارغ
-                    reels_created.append(output_file)
-            
+        
         return reels_created
 
     def process_pipeline(self):
@@ -140,6 +134,7 @@ class VideoProcessor:
                 json.dump(top_moments, f, indent=4)
             
             self.step_8_generate_reels(top_moments)
+            print("--- ✨ Pipeline Finished Successfully! ---")
             return True
         except Exception as e:
             print(f"--- ❌ Pipeline Failed: {str(e)} ---")

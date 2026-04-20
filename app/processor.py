@@ -83,41 +83,49 @@ class VideoProcessor:
         return final_ranking
 
     def step_8_generate_reels(self, top_moments, count=1):
-        print(f"--- 🎬 Starting Reel Generation ---")
+        print(f"--- 🎬 Checking Original Video Path ---")
+        if not os.path.exists(self.video_path):
+            print(f"❌ Error: Original video NOT FOUND at {self.video_path}")
+            return []
+
+        print(f"--- 🎞️ Video Found! Size: {os.path.getsize(self.video_path)} bytes")
         reels_created = []
 
         for i in range(min(count, len(top_moments))):
             best_sec = top_moments[i]['second']
             start_time = max(0, best_sec - 3)
             duration = 10 
-            output_file = os.path.join(self.output_path, "reels", f"reel_{i+1}.mp4")
             
-            # فلتر القص العمودي المطور
-            vf_filter = "crop=ih*(9/16):ih,scale=720:1280"
+            # التأكد من وجود مجلد الريلز
+            reels_dir = os.path.join(self.output_path, "reels")
+            os.makedirs(reels_dir, exist_ok=True)
             
+            output_file = os.path.join(reels_dir, f"reel_{i+1}.mp4")
+            
+            # أمر FFmpeg مبسط جداً لضمان عدم الفشل بسبب الفلاتر المعقدة حالياً
             command = [
                 'ffmpeg', '-y', 
                 '-ss', str(start_time), 
                 '-t', str(duration),
                 '-i', self.video_path,
-                '-vf', vf_filter,
+                '-vf', "scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2", 
                 '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
-                '-preset', 'veryfast', '-crf', '23',
-                '-c:a', 'aac', '-b:a', '128k',
-                '-movflags', '+faststart',
+                '-preset', 'ultrafast', 
+                '-c:a', 'aac',
                 output_file
             ]
             
+            print(f"🚀 Running FFmpeg for Reel {i+1}...")
             result = subprocess.run(command, capture_output=True, text=True)
             
             if result.returncode != 0:
                 print(f"❌ FFmpeg Error: {result.stderr}")
-            elif os.path.exists(output_file) and os.path.getsize(output_file) > 0:
-                print(f"✅ Reel {i+1} Created! Size: {os.path.getsize(output_file)} bytes")
-                reels_created.append(output_file)
-            else:
-                print(f"⚠️ Reel {i+1} was created but is empty.")
-        
+            elif os.path.exists(output_file):
+                size = os.path.getsize(output_file)
+                print(f"✅ Reel Created! Path: {output_file} | Size: {size} bytes")
+                if size > 1000: # التأكد أن الحجم منطقي وليس مجرد ملف فارغ
+                    reels_created.append(output_file)
+            
         return reels_created
 
     def process_pipeline(self):

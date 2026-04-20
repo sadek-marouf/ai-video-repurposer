@@ -22,7 +22,7 @@ COPY . .
 
 # إنشاء المجلدات وضمان الصلاحيات
 RUN mkdir -p uploads processed_data && chmod -R 777 uploads processed_data
-
+RUN apt-get install -y fonts-freefont-ttf fonts-arphic-ukai
 EXPOSE 8000
 
 # تصحيح مسار التشغيل (تأكد أن main.py موجود داخل مجلد اسمه app أو في الجذور)

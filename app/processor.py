@@ -86,26 +86,33 @@ class VideoProcessor:
         final_ranking.sort(key=lambda x: x['score'], reverse=True)
         return final_ranking
     def step_8_generate_reels(self, top_moments, count=1):
-        """الخطوة 8: قص الفيديو وتحويله لأبعاد الريلز (9:16)"""
-        print(f"--- Generating Reels ---")
+        """الخطوة 8 المحدثة: قص الفيديو مع ضمان التوافقية العالية"""
+        print(f"--- Generating Compatible Reels ---")
         reels_created = []
 
         for i in range(min(count, len(top_moments))):
             best_sec = top_moments[i]['second']
-            # تحديد وقت البداية (قبل اللحظة بـ 2 ثانية) والمدة (6 ثوانٍ للريل القصير)
-            start_time = max(0, best_sec - 2)
-            duration = 6 
+            start_time = max(0, best_sec - 3) # زيادة وقت البداية قليلاً للسياق
+            duration = 10 # جعل الريل 10 ثوانٍ
             
             output_file = os.path.join(self.output_path, "reels", f"reel_{i+1}.mp4")
             
-            # أمر FFmpeg: القص + التحويل لعمودي + Scale لضمان الجودة
+            # أمر FFmpeg المطور لضمان عمل الفيديو على كل الأجهزة
             command = [
-                'ffmpeg', '-ss', str(start_time), '-t', str(duration),
+                'ffmpeg', '-y', 
+                '-ss', str(start_time), 
+                '-t', str(duration),
                 '-i', self.video_path,
-                '-vf', "crop=ih*(9/16):ih,scale=720:1280", 
-                '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
-                '-c:a', 'aac', '-b:a', '128k',
-                output_file, '-y'
+                '-vf', "crop=ih*(9/16):ih,scale=w=720:h=1280:force_original_aspect_ratio=increase,pad=720:1280:(ow-iw)/2:(oh-ih)/2", 
+                '-c:v', 'libx264', 
+                '-pix_fmt', 'yuv420p', # ضروري جداً لعمل الفيديو على الموبايل
+                '-profile:v', 'main', 
+                '-level', '3.1',
+                '-crf', '23',
+                '-c:a', 'aac', 
+                '-b:a', '128k',
+                '-movflags', '+faststart', # يسمح بتشغيل الفيديو فوراً أثناء التحميل
+                output_file
             ]
             
             subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)

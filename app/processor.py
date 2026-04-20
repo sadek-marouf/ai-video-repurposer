@@ -8,9 +8,10 @@ import json
 
 class VideoProcessor:
     def __init__(self, video_path, output_dir="processed_data"):
-        self.video_path = video_path
+        # تحويل المسار لمسار مطلق لضمان وصول FFmpeg إليه
+        self.video_path = os.path.abspath(video_path)
         self.base_name = os.path.basename(video_path).split('.')[0]
-        self.output_path = os.path.join(output_dir, self.base_name)
+        self.output_path = os.path.abspath(os.path.join(output_dir, self.base_name))
         self._setup_dirs()
         self.model = whisper.load_model("base")
 
@@ -25,7 +26,7 @@ class VideoProcessor:
             '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1',
             audio_out, '-y'
         ]
-        subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+        subprocess.run(command, capture_output=True)
         return audio_out
 
     def step_3_whisper_analysis(self, audio_path):
@@ -63,8 +64,6 @@ class VideoProcessor:
     def step_6_calculate_scores(self, segments, audio_scores, visual_scores):
         final_ranking = []
         duration = min(len(audio_scores), len(visual_scores))
-        
-        # تصحيح حسابات الـ Audio (Normalization)
         m_audio = max(audio_scores) if audio_scores and max(audio_scores) > 0 else 1.0
         min_audio = min(audio_scores) if audio_scores else 0.0
         diff = m_audio - min_audio
@@ -72,73 +71,68 @@ class VideoProcessor:
         for sec in range(duration):
             a_norm = (audio_scores[sec] - min_audio) / (diff + 1e-6)
             v_score = visual_scores[sec]
-            
             t_score = 0.0
             for seg in segments:
                 if seg['start'] <= sec <= seg['end']:
                     t_score = 1.0
                     break
-
-            # ميزان الجيمنج/الأنميشن الجديد
             combined_score = (a_norm * 0.4) + (v_score * 0.4) + (t_score * 0.2)
             final_ranking.append({"second": sec, "score": round(combined_score, 4)})
             
         final_ranking.sort(key=lambda x: x['score'], reverse=True)
         return final_ranking
+
     def step_8_generate_reels(self, top_moments, count=1):
-        """الخطوة 8 المحدثة: قص الفيديو مع ضمان التوافقية العالية"""
-        print(f"--- Generating Compatible Reels ---")
+        print(f"--- 🎬 Starting Reel Generation ---")
         reels_created = []
 
         for i in range(min(count, len(top_moments))):
             best_sec = top_moments[i]['second']
-            start_time = max(0, best_sec - 3) # زيادة وقت البداية قليلاً للسياق
-            duration = 10 # جعل الريل 10 ثوانٍ
-            
+            start_time = max(0, best_sec - 3)
+            duration = 10 
             output_file = os.path.join(self.output_path, "reels", f"reel_{i+1}.mp4")
             
-            # أمر FFmpeg المطور لضمان عمل الفيديو على كل الأجهزة
+            # فلتر القص العمودي المطور
+            vf_filter = "crop=ih*(9/16):ih,scale=720:1280"
+            
             command = [
                 'ffmpeg', '-y', 
                 '-ss', str(start_time), 
                 '-t', str(duration),
                 '-i', self.video_path,
-                '-vf', "crop=ih*(9/16):ih,scale=w=720:h=1280:force_original_aspect_ratio=increase,pad=720:1280:(ow-iw)/2:(oh-ih)/2", 
-                '-c:v', 'libx264', 
-                '-pix_fmt', 'yuv420p', # ضروري جداً لعمل الفيديو على الموبايل
-                '-profile:v', 'main', 
-                '-level', '3.1',
-                '-crf', '23',
-                '-c:a', 'aac', 
-                '-b:a', '128k',
-                '-movflags', '+faststart', # يسمح بتشغيل الفيديو فوراً أثناء التحميل
+                '-vf', vf_filter,
+                '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+                '-preset', 'veryfast', '-crf', '23',
+                '-c:a', 'aac', '-b:a', '128k',
+                '-movflags', '+faststart',
                 output_file
             ]
             
-            subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
-            reels_created.append(output_file)
+            result = subprocess.run(command, capture_output=True, text=True)
+            
+            if result.returncode != 0:
+                print(f"❌ FFmpeg Error: {result.stderr}")
+            elif os.path.exists(output_file) and os.path.getsize(output_file) > 0:
+                print(f"✅ Reel {i+1} Created! Size: {os.path.getsize(output_file)} bytes")
+                reels_created.append(output_file)
+            else:
+                print(f"⚠️ Reel {i+1} was created but is empty.")
         
         return reels_created
 
     def process_pipeline(self):
-        """النسخة الكاملة من المسار"""
         try:
             audio_file = self.step_2_extract_audio()
             segments = self.step_3_whisper_analysis(audio_file)
             audio_scores = self.step_4_audio_energy(audio_file)
             visual_scores = self.step_5_visual_analysis()
-            
             top_moments = self.step_6_calculate_scores(segments, audio_scores, visual_scores)
             
-            # حفظ السكور
             with open(os.path.join(self.output_path, "scoring.json"), 'w') as f:
                 json.dump(top_moments, f, indent=4)
             
-            # توليد الريلز فعلياً
             self.step_8_generate_reels(top_moments)
-            
-            print(f"--- Reels Generated Successfully! ---")
             return True
         except Exception as e:
-            print(f"--- Error: {str(e)} ---")
+            print(f"--- ❌ Pipeline Failed: {str(e)} ---")
             return False

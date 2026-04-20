@@ -1,30 +1,31 @@
 FROM python:3.9-slim
 
-# تثبيت أدوات النظام و FFmpeg بشكل مؤكد
+# 1. تثبيت أدوات النظام، FFmpeg، والخطوط العربية في أمر واحد
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     git \
     libgl1 \
     libglib2.0-0 \
+    fonts-dejavu \
+    fonts-noto-core \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# تثبيت Torch CPU لتوفير المساحة
+# 2. تثبيت Torch CPU
 RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
-# تثبيت المكتبات
+# 3. تثبيت المكتبات الأخرى
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# نسخ كود المشروع بالكامل
+# 4. نسخ كود المشروع
 COPY . .
 
-# إنشاء المجلدات وضمان الصلاحيات
+# 5. إنشاء المجلدات وتجهيز الصلاحيات
 RUN mkdir -p uploads processed_data && chmod -R 777 uploads processed_data
-RUN apt-get install -y fonts-freefont-ttf fonts-arphic-ukai
+
 EXPOSE 8000
 
-# تصحيح مسار التشغيل (تأكد أن main.py موجود داخل مجلد اسمه app أو في الجذور)
-# إذا كان main.py في المجلد الرئيسي مباشرة، استخدم: main:app
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# 6. تشغيل السيرفر
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -167,16 +167,26 @@ class VideoProcessor:
 
     def process_pipeline(self):
         try:
+            # 1. استخراج الصوت
             audio_file = self.step_2_extract_audio()
+            
+            # 2. تحليل النصوص (Whisper) والحصول على السجمنتس
             segments = self.step_3_whisper_analysis(audio_file)
+            
+            # 3. تحليل الطاقة الصوتية والبصرية
             audio_scores = self.step_4_audio_energy(audio_file)
             visual_scores = self.step_5_visual_analysis()
+            
+            # 4. حساب أفضل اللحظات
             top_moments = self.step_6_calculate_scores(segments, audio_scores, visual_scores)
             
+            # 5. حفظ النتائج في ملف JSON للرجوع إليها
             with open(os.path.join(self.output_path, "scoring.json"), 'w') as f:
                 json.dump(top_moments, f, indent=4)
             
-            self.step_8_generate_reels(top_moments)
+            # 6. تمرير السجمنتس لعملية توليد الريلز (هنا كان الخطأ)
+            self.step_8_generate_reels(top_moments, segments)
+            
             print("--- ✨ Pipeline Finished Successfully! ---")
             return True
         except Exception as e:

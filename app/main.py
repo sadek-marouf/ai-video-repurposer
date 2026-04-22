@@ -4,7 +4,7 @@ from fastapi import FastAPI, UploadFile, File, BackgroundTasks
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from processor import VideoProcessor
+from app.processor import VideoProcessor
 
 app = FastAPI()
 

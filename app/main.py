@@ -56,3 +56,9 @@ def download(job_id: str, num: int):
         return FileResponse(path, media_type="video/mp4")
 
     return {"error": "not ready"}
+@app.get("/get-video/{filename}")
+def get_video(filename: str):
+    path = os.path.join("uploads", filename)
+    if os.path.exists(path):
+        return FileResponse(path, media_type="video/mp4")
+    return {"error": "not found"}

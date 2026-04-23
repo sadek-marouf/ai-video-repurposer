@@ -1,7 +1,3 @@
 fastapi
 uvicorn
 python-multipart
-openai-whisper
-opencv-python-headless
-librosa
-numpy

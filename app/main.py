@@ -1,10 +1,9 @@
 import os
 import shutil
-from fastapi import FastAPI, UploadFile, File, BackgroundTasks
+import uuid
+from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-
-from app.processor import VideoProcessor
 
 app = FastAPI()
 
@@ -16,41 +15,42 @@ os.makedirs(PROCESSED_DIR, exist_ok=True)
 
 app.mount("/outputs", StaticFiles(directory=PROCESSED_DIR), name="outputs")
 
-# 📤 رفع فيديو
+# 📤 رفع فيديو (بدون معالجة)
 @app.post("/upload")
-async def upload(file: UploadFile = File(...), bg: BackgroundTasks = None):
-    path = os.path.join(UPLOAD_DIR, file.filename)
+async def upload(file: UploadFile = File(...)):
+    job_id = str(uuid.uuid4())
+    file_ext = file.filename.split('.')[-1]
+
+    filename = f"{job_id}.{file_ext}"
+    path = os.path.join(UPLOAD_DIR, filename)
 
     with open(path, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
-    processor = VideoProcessor(path)
-
-    if bg:
-        bg.add_task(processor.process)
-
     return {
-        "status": "processing",
-        "video": processor.base_name
+        "status": "uploaded",
+        "job_id": job_id,
+        "filename": filename
     }
 
 # 🔍 الحالة
-@app.get("/status/{name}")
-def status(name: str):
-    p = f"processed_data/{name}/segments.json"
+@app.get("/status/{job_id}")
+def status(job_id: str):
+    base_name = job_id
+    p = f"processed_data/{base_name}/segments.json"
 
     if os.path.exists(p):
         return {
             "status": "done",
-            "download": f"/download/{name}/1"
+            "download": f"/download/{base_name}/1"
         }
 
-    return {"status": "processing"}
+    return {"status": "waiting for processing"}
 
 # 📥 تحميل
-@app.get("/download/{name}/{num}")
-def download(name: str, num: int):
-    path = f"processed_data/{name}/reels/reel_{num}.mp4"
+@app.get("/download/{job_id}/{num}")
+def download(job_id: str, num: int):
+    path = f"processed_data/{job_id}/reels/reel_{num}.mp4"
 
     if os.path.exists(path):
         return FileResponse(path, media_type="video/mp4")
